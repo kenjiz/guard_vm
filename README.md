@@ -1,7 +1,7 @@
 # Guard VM 🛡️
 
+![coverage][coverage_badge]
 [![style: very good analysis][very_good_analysis_badge]][very_good_analysis_link]
-[![Powered by Mason](https://img.shields.io/endpoint?url=https%3A%2F%2Ftinyurl.com%2Fmason-badge)](https://github.com/felangel/mason)
 [![License: MIT][license_badge]][license_link]
 
 A production-ready state management solution built on top of Flutter's `ValueNotifier` and `ChangeNotifier`. Guard VM provides automatic state management, error handling, and lifecycle management for async operations with a clean, disciplined API.
@@ -461,6 +461,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 **Made with ❤️ for Flutter developers who value simplicity and discipline**
 
+[coverage_badge]: coverage_badge.svg
 [flutter_install_link]: https://docs.flutter.dev/get-started/install
 [github_actions_link]: https://docs.github.com/en/actions/learn-github-actions
 [license_badge]: https://img.shields.io/badge/license-MIT-blue.svg
