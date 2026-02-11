@@ -1,0 +1,21 @@
+name: guard_vm
+description: Production-ready state management built on ValueNotifier with automatic async state handling, error management, and lifecycle control.
+version: 0.1.0+1
+publish_to: none
+
+environment:
+  sdk: ^3.10.0
+  flutter: ^3.38.1
+
+dependencies:
+  flutter:
+    sdk: flutter
+  freezed_annotation: ^3.1.0
+
+dev_dependencies:
+  build_runner: ^2.11.0
+  flutter_test:
+    sdk: flutter
+  freezed: ^3.2.5
+  mocktail: ^1.0.4
+  very_good_analysis: ^10.1.0
