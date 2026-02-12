@@ -19,3 +19,4 @@ jobs:
       coverage_excludes: "lib/src/widget/*.dart lib/**/*.freezed.dart" # Exclude all files from coverage report
       min_coverage: 90
       flutter_version: "3.38.x"
+      format_line_length: 120

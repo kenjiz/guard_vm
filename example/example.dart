@@ -202,16 +202,26 @@ class CartCountVM extends StreamGuardVM<int> {
 class TotalPriceVM extends CoordinatedVM<double> {
   TotalPriceVM(this._cartCountVM, this._productListVM) : super(const AsyncValue.data(0)) {
     // Calculate total price whenever cart or products change
+    // executeImmediately is true by default, so it runs with current state
     coordinateWith(
       _cartCountVM,
       _calculateTotal,
-      executeImmediately: true,
+      null, // onError - use default error propagation
+      null, // onLoading - ignore loading state
     );
 
     coordinateWith(
       _productListVM,
       _updateProductList,
-      executeImmediately: true,
+      (error) {
+        // Custom error handler - reset total on error
+        print('Product list error: $error');
+        setData(0);
+      },
+      () {
+        // Loading handler - show zero while loading
+        setData(0);
+      },
     );
   }
 
