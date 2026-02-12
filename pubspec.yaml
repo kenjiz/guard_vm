@@ -1,6 +1,6 @@
 name: guard_vm
 description: Production-ready state management built on ValueNotifier with automatic async state handling, error management, and lifecycle control.
-version: 0.1.0+1
+version: 0.2.0
 publish_to: none
 
 environment:
