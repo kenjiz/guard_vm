@@ -598,6 +598,10 @@ void main() {
     });
 
     test('coordinateWith listens to other VM', () {
+      // sourceVM starts with loading, vm should execute immediately
+      expect(vm.value.hasValue, true);
+      expect(vm.value.value, ''); // Initial empty value
+
       sourceVM.setTestData(const User(id: '1', name: 'Test'));
 
       // VM should have reacted to the change
@@ -605,29 +609,85 @@ void main() {
       expect(vm.value.value, 'Test'); // VM converts user name to string
     });
 
-    test('coordinateWith executes immediately when requested', () {
-      final vm2 = CoordinatedTestVM(sourceVM, executeImmediately: true);
+    test('coordinateWith executes immediately by default', () {
+      sourceVM.setTestData(const User(id: '1', name: 'Initial'));
+      final vm2 = CoordinatedTestVM(sourceVM); // executeImmediately is true by default
 
       // Should immediately get the current state
       expect(vm2.value.hasValue, true);
+      expect(vm2.value.value, 'Initial');
 
       vm2.dispose();
     });
 
-    test('coordinateWith propagates errors', () {
+    test('coordinateWith skips immediate execution when disabled', () {
+      sourceVM.setTestData(const User(id: '1', name: 'Initial'));
+      final vm2 = CoordinatedTestVM(sourceVM, executeImmediately: false);
+
+      // Should still have initial empty value
+      expect(vm2.value.hasValue, true);
+      expect(vm2.value.value, ''); // Not 'Initial'
+
+      // But should react to future changes
+      sourceVM.setTestData(const User(id: '2', name: 'Updated'));
+      expect(vm2.value.value, 'Updated');
+
+      vm2.dispose();
+    });
+
+    test('coordinateWith propagates errors by default', () {
       final error = Exception('Source error');
       sourceVM.setError(error);
 
-      // Error should propagate
+      // Error should propagate to coordinated VM
       expect(vm.value.hasError, true);
       expect(vm.value.errorValue, error);
     });
 
-    test('coordinateWith handles loading state', () {
+    test('coordinateWith uses custom error handler when provided', () {
+      final capturedErrors = <Exception>[];
+      final vm2 = CoordinatedTestVMWithErrorHandler(
+        sourceVM,
+        onErrorCallback: capturedErrors.add,
+      );
+
+      final error = Exception('Custom error');
+      sourceVM.setError(error);
+
+      // Custom handler should be called
+      expect(capturedErrors, contains(error));
+      // VM state should not be affected
+      expect(vm2.value.hasValue, true);
+      expect(vm2.value.value, '');
+
+      vm2.dispose();
+    });
+
+    test('coordinateWith ignores loading state by default', () {
+      sourceVM.setTestData(const User(id: '1', name: 'Initial'));
       sourceVM.setLoading();
 
-      // Loading state is ignored by coordinateWith
+      // Loading state is ignored, VM keeps previous value
       expect(vm.value.hasValue, true);
+      expect(vm.value.value, 'Initial');
+    });
+
+    test('coordinateWith uses custom loading handler when provided', () {
+      var loadingCallCount = 0;
+      final vm2 = CoordinatedTestVMWithLoadingHandler(
+        sourceVM,
+        onLoadingCallback: () => loadingCallCount++,
+      );
+
+      // executeImmediately is true by default, so loading handler is called once for initial state
+      expect(loadingCallCount, 1);
+
+      sourceVM.setLoading();
+
+      // Custom loading handler should be called again
+      expect(loadingCallCount, 2);
+
+      vm2.dispose();
     });
 
     test('dispose removes listeners from coordinated VMs', () {
@@ -851,15 +911,51 @@ class StreamVM extends StreamGuardVM<int> {
 }
 
 class CoordinatedTestVM extends CoordinatedVM<String> {
-  CoordinatedTestVM(this._sourceVM, {bool executeImmediately = false}) : super(const AsyncValue.data('')) {
-    coordinateWith(
+  CoordinatedTestVM(this._sourceVM, {bool executeImmediately = true}) : super(const AsyncValue.data('')) {
+    coordinateWith<User>(
       _sourceVM,
       (user) => setData(user.name),
+      null, // onError
+      null, // onLoading
       executeImmediately: executeImmediately,
     );
   }
 
   final TestVM _sourceVM;
+}
+
+class CoordinatedTestVMWithErrorHandler extends CoordinatedVM<String> {
+  CoordinatedTestVMWithErrorHandler(
+    this._sourceVM, {
+    required this.onErrorCallback,
+  }) : super(const AsyncValue.data('')) {
+    coordinateWith<User>(
+      _sourceVM,
+      (user) => setData(user.name),
+      onErrorCallback,
+      null, // onLoading
+    );
+  }
+
+  final TestVM _sourceVM;
+  final void Function(Exception error) onErrorCallback;
+}
+
+class CoordinatedTestVMWithLoadingHandler extends CoordinatedVM<String> {
+  CoordinatedTestVMWithLoadingHandler(
+    this._sourceVM, {
+    required this.onLoadingCallback,
+  }) : super(const AsyncValue.data('')) {
+    coordinateWith<User>(
+      _sourceVM,
+      (user) => setData(user.name),
+      null, // onError
+      onLoadingCallback,
+    );
+  }
+
+  final TestVM _sourceVM;
+  final VoidCallback onLoadingCallback;
 }
 
 class Product {

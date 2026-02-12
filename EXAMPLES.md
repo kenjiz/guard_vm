@@ -814,10 +814,15 @@ class ActiveRideVM extends CoordinatedVM<RideStep> {
         _ride.estimatedArrival,
       ))) {
     // Coordinate with driver location
+    // executeImmediately is true by default, so updates happen immediately
     coordinateWith(
       _driverLocationVM,
       _onDriverLocationUpdate,
-      executeImmediately: true,
+      (error) {
+        // Handle location errors gracefully
+        print('Driver location error: $error');
+      },
+      null, // onLoading - keep showing last known location
     );
 
     // Listen to ride status updates
@@ -1043,17 +1048,27 @@ class AppVM extends CoordinatedVM<AppState> {
     this._connectivityVM,
   ) : super(const AsyncValue.data(AppState.initial())) {
     // Listen to auth changes
+    // executeImmediately is true by default
     coordinateWith(
       _authVM,
       (authUser) => _onAuthChanged(authUser),
-      executeImmediately: true,
+      (error) {
+        // Handle auth errors
+        print('Auth error: $error');
+        setData(AppState.initial());
+      },
+      () {
+        // Show loading state during auth check
+        setData(value.value!.copyWith(isAuthenticated: false));
+      },
     );
 
     // Listen to connectivity
     coordinateWith(
       _connectivityVM,
       (isConnected) => _onConnectivityChanged(isConnected),
-      executeImmediately: true,
+      null, // errors propagate by default
+      null, // ignore loading state
     );
   }
 
@@ -1336,7 +1351,11 @@ void main() {
 1. **AsyncValue<StateUnion>** - Wrap your state machine in AsyncValue for automatic loading/error handling
 2. **GuardVM** - Use for standard state machines
 3. **StreamGuardVM** - Use for real-time updates (location, progress, streams)
-4. **CoordinatedVM** - Use for VMs that depend on other VMs
+4. **CoordinatedVM** - Use for VMs that depend on other VMs' states
+   - `onData`: React to data changes from coordinated VM
+   - `onError`: Custom error handling (or omit for automatic error propagation)
+   - `onLoading`: React to loading states (or omit to ignore)
+   - `executeImmediately`: Defaults to `true` to handle initial state
 5. **PaginatedGuardVM** - Use for infinite scroll lists
 
 ### Architecture Benefits
