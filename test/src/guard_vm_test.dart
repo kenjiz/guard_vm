@@ -664,8 +664,9 @@ void main() {
     });
 
     test('coordinateWith ignores loading state by default', () {
-      sourceVM.setTestData(const User(id: '1', name: 'Initial'));
-      sourceVM.setLoading();
+      sourceVM
+        ..setTestData(const User(id: '1', name: 'Initial'))
+        ..setLoading();
 
       // Loading state is ignored, VM keeps previous value
       expect(vm.value.hasValue, true);
