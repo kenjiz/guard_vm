@@ -1,0 +1,222 @@
+name: Update Changelog
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - main
+
+jobs:
+  update-changelog:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      
+      - name: Get PR information
+        id: pr-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR_NUMBER=${{ github.event.pull_request.number }}
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+          PR_URL="${{ github.event.pull_request.html_url }}"
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_title=$PR_TITLE" >> $GITHUB_OUTPUT
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          
+          # Get commit messages from the PR
+          COMMITS=$(gh pr view $PR_NUMBER --json commits --jq '.commits[].messageHeadline')
+          
+          # Save commits to a file for processing
+          echo "$COMMITS" > /tmp/commits.txt
+          
+          echo "Commits in PR #$PR_NUMBER:"
+          cat /tmp/commits.txt
+      
+      - name: Extract version from pubspec.yaml
+        id: version
+        run: |
+          VERSION=$(grep '^version:' pubspec.yaml | sed 's/version: //')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Current version: $VERSION"
+      
+      - name: Determine change category
+        id: category
+        run: |
+          PR_TITLE_LOWER=$(echo "${{ steps.pr-info.outputs.pr_title }}" | tr '[:upper:]' '[:lower:]')
+          
+          # Determine category based on PR title/labels
+          if echo "$PR_TITLE_LOWER" | grep -qE '^feat|^feature|^add'; then
+            CATEGORY="Added"
+          elif echo "$PR_TITLE_LOWER" | grep -qE '^fix|^bugfix'; then
+            CATEGORY="Fixed"
+          elif echo "$PR_TITLE_LOWER" | grep -qE '^change|^update|^refactor'; then
+            CATEGORY="Changed"
+          elif echo "$PR_TITLE_LOWER" | grep -qE '^deprecate'; then
+            CATEGORY="Deprecated"
+          elif echo "$PR_TITLE_LOWER" | grep -qE '^remove'; then
+            CATEGORY="Removed"
+          elif echo "$PR_TITLE_LOWER" | grep -qE '^security'; then
+            CATEGORY="Security"
+          else
+            CATEGORY="Changed"
+          fi
+          
+          echo "category=$CATEGORY" >> $GITHUB_OUTPUT
+          echo "Detected category: $CATEGORY"
+      
+      - name: Update CHANGELOG.md
+        run: |
+          PR_NUMBER=${{ steps.pr-info.outputs.pr_number }}
+          PR_TITLE="${{ steps.pr-info.outputs.pr_title }}"
+          PR_AUTHOR="${{ steps.pr-info.outputs.pr_author }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          CATEGORY="${{ steps.category.outputs.category }}"
+          TODAY=$(date +%Y-%m-%d)
+          
+          # Create temporary file for the new changelog content
+          TEMP_FILE=$(mktemp)
+          
+          # Read the current CHANGELOG
+          if [ ! -f "CHANGELOG.md" ]; then
+            echo "# Changelog" > CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "All notable changes to this project will be documented in this file." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+            echo "The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)," >> CHANGELOG.md
+            echo "and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)." >> CHANGELOG.md
+            echo "" >> CHANGELOG.md
+          fi
+          
+          # Check if there's already an Unreleased section
+          if grep -q "## \[Unreleased\]" CHANGELOG.md; then
+            # Add to existing Unreleased section
+            # Find the Unreleased section and add the new entry
+            awk -v pr="$PR_NUMBER" -v title="$PR_TITLE" -v category="$CATEGORY" -v author="$PR_AUTHOR" '
+              /## \[Unreleased\]/ {
+                print
+                in_unreleased=1
+                next
+              }
+              in_unreleased && /^### / {
+                if ($0 ~ "### " category) {
+                  print
+                  print "- " title " ([#" pr "](https://github.com/${{ github.repository }}/pull/" pr ")) by @" author
+                  category_found=1
+                  in_category=1
+                  next
+                }
+              }
+              in_unreleased && /^## / {
+                if (!category_found) {
+                  print ""
+                  print "### " category
+                  print ""
+                  print "- " title " ([#" pr "](https://github.com/${{ github.repository }}/pull/" pr ")) by @" author
+                  print ""
+                }
+                in_unreleased=0
+              }
+              { print }
+            ' CHANGELOG.md > "$TEMP_FILE"
+          else
+            # Create new Unreleased section
+            awk -v pr="$PR_NUMBER" -v title="$PR_TITLE" -v category="$CATEGORY" -v author="$PR_AUTHOR" '
+              /^## \[/ && !inserted {
+                print "## [Unreleased]"
+                print ""
+                print "### " category
+                print ""
+                print "- " title " ([#" pr "](https://github.com/${{ github.repository }}/pull/" pr ")) by @" author
+                print ""
+                inserted=1
+              }
+              { print }
+            ' CHANGELOG.md > "$TEMP_FILE"
+          fi
+          
+          # If commits file exists, add individual commits as subitems
+          if [ -f /tmp/commits.txt ] && [ -s /tmp/commits.txt ]; then
+            # Process commits and add them as subitems
+            python3 << 'PYTHON_SCRIPT'
+          import re
+          
+          # Read the temp file
+          with open('$TEMP_FILE', 'r') as f:
+              lines = f.readlines()
+          
+          # Read commits
+          with open('/tmp/commits.txt', 'r') as f:
+              commits = [line.strip() for line in f if line.strip()]
+          
+          # Find the PR entry we just added and add commits as subitems
+          output = []
+          i = 0
+          pr_pattern = r'\[#${{ steps.pr-info.outputs.pr_number }}\]'
+          
+          while i < len(lines):
+              line = lines[i]
+              output.append(line)
+              
+              # Check if this line contains our PR
+              if re.search(pr_pattern, line):
+                  # Add commits as subitems (only if more than 1 commit)
+                  if len(commits) > 1:
+                      for commit in commits:
+                          if commit and not commit.startswith('Merge'):
+                              output.append(f"  - {commit}\n")
+              
+              i += 1
+          
+          # Write back
+          with open('$TEMP_FILE', 'w') as f:
+              f.writelines(output)
+          PYTHON_SCRIPT
+          fi
+          
+          # Replace the original CHANGELOG
+          mv "$TEMP_FILE" CHANGELOG.md
+          
+          echo "CHANGELOG.md updated successfully!"
+          echo ""
+          echo "Added entry:"
+          echo "- $PR_TITLE ([#$PR_NUMBER]) by @$PR_AUTHOR"
+      
+      - name: Commit and push changes
+        run: |
+          git add CHANGELOG.md
+          
+          # Check if there are changes to commit
+          if git diff --staged --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          
+          git commit -m "docs: update CHANGELOG for PR #${{ steps.pr-info.outputs.pr_number }} [skip ci]"
+          git push origin main
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        run: |
+          echo "✅ CHANGELOG.md updated for PR #${{ steps.pr-info.outputs.pr_number }}"
+          echo "📝 Title: ${{ steps.pr-info.outputs.pr_title }}"
+          echo "👤 Author: @${{ steps.pr-info.outputs.pr_author }}"
+          echo "🏷️ Category: ${{ steps.category.outputs.category }}"
