@@ -155,11 +155,15 @@ jobs:
           # If commits file exists, add individual commits as subitems
           if [ -f /tmp/commits.txt ] && [ -s /tmp/commits.txt ]; then
             # Process commits and add them as subitems
-            python3 << 'PYTHON_SCRIPT'
+            TEMP_FILE_VAR="$TEMP_FILE" PR_NUM="${{ steps.pr-info.outputs.pr_number }}" python3 << 'PYTHON_SCRIPT'
           import re
+          import os
+          
+          temp_file = os.environ['TEMP_FILE_VAR']
+          pr_number = os.environ['PR_NUM']
           
           # Read the temp file
-          with open('$TEMP_FILE', 'r') as f:
+          with open(temp_file, 'r') as f:
               lines = f.readlines()
           
           # Read commits
@@ -169,7 +173,7 @@ jobs:
           # Find the PR entry we just added and add commits as subitems
           output = []
           i = 0
-          pr_pattern = r'\[#${{ steps.pr-info.outputs.pr_number }}\]'
+          pr_pattern = rf'\[#{pr_number}\]'
           
           while i < len(lines):
               line = lines[i]
@@ -186,7 +190,7 @@ jobs:
               i += 1
           
           # Write back
-          with open('$TEMP_FILE', 'w') as f:
+          with open(temp_file, 'w') as f:
               f.writelines(output)
           PYTHON_SCRIPT
           fi
