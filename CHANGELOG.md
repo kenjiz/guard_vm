@@ -9,7 +9,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `VMScope<T>` that uses InheritedWidget to pass the vm down the widget tree
+- **`VMScope<T>`**: InheritedWidget-based widget for passing ViewModels down the widget tree without prop drilling
+  - Requires explicit VM creation and disposal in State classes (no automatic lifecycle management)
+  - `VMScope.of<VM>(context)` static method for accessing VMs
+  - `VMScope.maybeOf<VM>(context)` for safe optional access
+  - Extension methods: `context.vm<VM>()` and `context.maybeVm<VM>()` for convenience
+  - Supports nested scopes for multiple VMs
+  - Clear error messages when VM not found in tree
+  - Comprehensive documentation with usage examples and common mistakes
+
+### Changed
+
+- **`CoordinatedVM<T>`**: Enhanced coordination capabilities with better control
+  - Added `executeImmediately` parameter (default: `true`) to `coordinateWith()` method
+    - When `true`, immediately invokes callbacks with current state of observed VM
+    - When `false`, only reacts to future state changes
+    - Prevents missing initial state when setting up coordination
+  - Improved error handling: automatically propagates errors to coordinating VM if no `onError` handler provided
+  - Added `onLoading` callback for reacting to loading states in observed VMs
+  - Better documentation with real-world examples (RideCostVM, SettingsVM coordination)
 
 ## [0.1.0+1] - 2026-02-11
 

@@ -19,7 +19,38 @@ A production-ready state management solution built on top of Flutter's `ValueNot
 - 📝 **Traceable** - Automatic debug logging in development
 - 🎨 **UI Helpers** - Ready-to-use builder widgets
 
-## Installation 💻
+## Philosophy 💭
+
+Guard VM is built on the **principle of discipline and explicitness**:
+
+- **Explicit Ownership** - You create and own your ViewModels. No magic dependency injection.
+- **Visible Lifecycle** - VM creation and disposal are clearly visible in your code, not hidden.
+- **Predictable State Flow** - State changes are traceable and explicit.
+- **No Surprises** - No automatic disposal or hidden behavior that causes subtle bugs.
+
+Unlike provider patterns that automatically create and dispose of ViewModels, Guard VM requires you to be explicit about lifecycle management. This might seem like more work initially, but it makes your code significantly more maintainable and prevents entire classes of bugs related to "magic" behavior.
+
+**Example:**
+
+```dart
+class _UserScreenState extends State<UserScreen> {
+  // ✅ Explicit: You create it
+  late final _userVM = UserVM(context.read<UserRepository>());
+
+  @override
+  void dispose() {
+    // ✅ Explicit: You dispose it
+    _userVM.dispose();
+    super.dispose();
+  }
+
+  // Your code clearly shows VM ownership and lifecycle
+}
+```
+
+This philosophy extends throughout Guard VM - from state management to coordination to widget scoping. Everything is explicit and traceable.
+
+## Installation
 
 ```sh
 flutter pub add guard_vm
@@ -190,7 +221,7 @@ class LocationVM extends StreamGuardVM<LatLng> {
 
 ### Coordinated ViewModels
 
-React to changes in other ViewModels:
+React to changes in other ViewModels with `CoordinatedVM`:
 
 ```dart
 class OrderTotalVM extends CoordinatedVM<double> {
@@ -201,14 +232,12 @@ class OrderTotalVM extends CoordinatedVM<double> {
     coordinateWith(
       _cartVM,
       (cart) => _updateTotal(cart),
-      executeImmediately: true,
     );
 
-    // Recalculate when discount changes
+    // React to discount changes
     coordinateWith(
       _discountVM,
       (discount) => _applyDiscount(discount),
-      executeImmediately: true,
     );
   }
 
@@ -218,6 +247,36 @@ class OrderTotalVM extends CoordinatedVM<double> {
   Future<void> _updateTotal(Cart cart) async {
     final total = cart.items.fold(0.0, (sum, item) => sum + item.price);
     setData(total);
+  }
+}
+```
+
+**Key Features:**
+
+- **`executeImmediately`** (default: `true`) - Immediately processes the observed VM's current state when coordination is set up, ensuring you don't miss the initial state
+- **`onData`** - Required callback when observed VM has data
+- **`onError`** - Optional error handler. If not provided, errors automatically propagate to the coordinating VM
+- **`onLoading`** - Optional callback for handling loading states (useful for resetting dependent state)
+
+**Example with error handling:**
+
+```dart
+class RideCostVM extends CoordinatedVM<double> {
+  RideCostVM(this._locationVM, this._pricingService)
+      : super(const AsyncValue.data(0.0)) {
+
+    coordinateWith(
+      _locationVM,
+      (location) => _calculateCost(location),
+      onError: (error) {
+        // Custom error handling
+        setData(0.0); // Reset to default cost
+      },
+    );
+  }
+
+  Future<void> _calculateCost(LatLng location) async {
+    await guardSilent(() => _pricingService.estimate(location));
   }
 }
 ```
@@ -278,6 +337,101 @@ if (state.canLoadMore) {
 }
 ```
 
+### VMScope - Avoiding Prop Drilling
+
+`VMScope` uses InheritedWidget to pass VMs down the widget tree without manual prop drilling, while maintaining Guard VM's philosophy of explicit lifecycle management:
+
+```dart
+class UserScreen extends StatefulWidget {
+  const UserScreen({super.key});
+
+  @override
+  State<UserScreen> createState() => _UserScreenState();
+}
+
+class _UserScreenState extends State<UserScreen> {
+  // ✅ Explicit VM creation - you own it, you control it
+  late final _userVM = UserVM(context.read<UserRepository>());
+
+  @override
+  void dispose() {
+    // ✅ Explicit disposal - clear lifecycle management
+    _userVM.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return VMScope<UserVM>(
+      vm: _userVM,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('User Profile')),
+        body: const Column(
+          children: [
+            UserHeader(),      // Can access UserVM
+            UserDetails(),     // Can access UserVM
+            UserSettings(),    // Can access UserVM
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// Deep in the widget tree - no prop drilling needed
+class UserHeader extends StatelessWidget {
+  const UserHeader({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Access VM using extension method
+    final userVM = context.vm<UserVM>();
+    // Or: final userVM = VMScope.of<UserVM>(context);
+
+    return GuardValueListenableBuilder<User>(
+      listenable: userVM,
+      data: (context, user) => Text('Hello ${user.name}'),
+    );
+  }
+}
+```
+
+**Key Points:**
+
+- **Not a Provider**: VMScope doesn't create or dispose VMs - you do that explicitly
+- **Nested Scopes**: You can nest multiple VMScopes for different VMs [MultiVMScope not yet available]
+- **Type-Safe**: Strong typing prevents accessing wrong VM types
+- **Extensions**: Convenient `context.vm<VM>()` and `context.maybeVm<VM>()` methods
+
+**Multiple VMs:**
+
+```dart
+@override
+Widget build(BuildContext context) {
+  return VMScope<UserVM>(
+    vm: _userVM,
+    child: VMScope<SettingsVM>(
+      vm: _settingsVM,
+      child: Scaffold(
+        body: MyWidget(), // Can access both VMs
+      ),
+    ),
+  );
+}
+```
+
+**When to use VMScope:**
+
+- ✅ Avoiding prop drilling across many widgets
+- ✅ VM is scoped to a specific screen/feature
+- ✅ You want explicit lifecycle control
+
+**When NOT to use VMScope:**
+
+- ❌ VM is truly app-wide (use a singleton instead)
+- ❌ Only 1-2 widgets need the VM (just pass it as a parameter)
+- ❌ You want automatic lifecycle management
+
 ## API Reference 📚
 
 ### GuardVM<T>
@@ -318,7 +472,12 @@ Extends GuardVM for coordinating with other VMs.
 
 **Methods:**
 
-- `coordinateWith<D>(vm, onData, {executeImmediately})` - Listen to another VM
+- `coordinateWith<D>(vm, onData, onError, onLoading, {executeImmediately})` - Listen to another VM
+  - `vm` - The VM to observe
+  - `onData` - Callback when observed VM has data
+  - `onError` - Optional error handler (auto-propagates if not provided)
+  - `onLoading` - Optional callback for loading states
+  - `executeImmediately` - If `true` (default), immediately invokes callbacks with current state
 
 ### PaginatedGuardVM<T>
 
@@ -339,6 +498,28 @@ Widget for building UI from GuardVM state.
 - `data: Widget Function(BuildContext, T)` - Build when data available
 - `loading: Widget Function(BuildContext)?` - Custom loading widget
 - `error: Widget Function(BuildContext, Exception)?` - Custom error widget
+
+### VMScope<VM>
+
+Provides a ViewModel to descendant widgets using InheritedWidget.
+
+**Usage:**
+
+```dart
+VMScope<UserVM>(
+  vm: myUserVM,
+  child: MyWidget(),
+)
+```
+
+**Access Methods:**
+
+- `VMScope.of<VM>(context)` - Get VM (throws if not found)
+- `VMScope.maybeOf<VM>(context)` - Get VM or null
+- `context.vm<VM>()` - Extension method (throws if not found)
+- `context.maybeVm<VM>()` - Extension method (returns null if not found)
+
+**Important:** VMScope does NOT create or dispose VMs - you must manage the lifecycle explicitly in your State class.
 
 ## Best Practices 💡
 
