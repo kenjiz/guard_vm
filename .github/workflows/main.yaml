@@ -13,13 +13,9 @@ jobs:
   semantic_pull_request:
     uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/semantic_pull_request.yml@v1
 
-  spell-check:
-    uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/spell_check.yml@v1
-    with:
-      includes: "**/*.md"
-      modified_files_only: false
-
   build:
     uses: VeryGoodOpenSource/very_good_workflows/.github/workflows/flutter_package.yml@v1
     with:
-      flutter_version: "3.35.x"
+      coverage_excludes: "lib/src/widget/*.dart lib/**/*.freezed.dart" # Exclude all files from coverage report
+      min_coverage: 90
+      flutter_version: "3.38.x"
